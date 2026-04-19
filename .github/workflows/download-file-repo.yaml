@@ -29,6 +29,7 @@ jobs:
 
       - name: Download and Split Files (Batch ${{ github.event.inputs.batch }})
         run: |
+          # All URLs (same as before)
           ALL_URLS=(
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg"
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_1.pkg"
@@ -51,19 +52,35 @@ jobs:
             URLS=("${ALL_URLS[@]:7:3}")
           fi
 
+          mkdir -p chunks
           cd chunks
+
+          # Configure Git (required inside the loop for each commit)
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
           for url in "${URLS[@]}"; do
             filename=$(basename "$url")
-            echo "Downloading $filename"
+            echo "=============================================="
+            echo "Processing: $filename"
+            echo "=============================================="
+
+            # Download
             curl -L -o "$filename" "$url"
 
-            # Split into 50 MB chunks (well under 100 MB limit)
+            # Split into 50 MB chunks
             split -b 50M -d "$filename" "${filename}.chunk"
-            rm "$filename"   # Remove original large file
+            rm "$filename"
 
-            # Create a checksum for verification
+            # Generate checksum for this file's chunks
             sha256sum "${filename}.chunk"* > "${filename}.sha256"
+
+            # Stage, commit, and push ONLY this file's chunks
+            git add "${filename}.chunk"* "${filename}.sha256"
+            git commit -m "Add chunks for $filename"
+            git push
+
+            echo "Completed $filename"
           done
 
       - name: Commit and Push Chunks
