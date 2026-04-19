@@ -1,0 +1,75 @@
+name: Chunk and Commit PKGs to Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: 'Batch number (1, 2, or 3)'
+        required: true
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+
+permissions:
+  contents: write
+
+jobs:
+  chunk-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Chunks Directory
+        run: mkdir -p chunks
+
+      - name: Download and Split Files (Batch ${{ github.event.inputs.batch }})
+        run: |
+          ALL_URLS=(
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_1.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_2.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_3.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_4.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_5.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_6.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/ppkgo/prod/CUSA00900_00/13/f_cc2abe4a1f19b883a98761fec84175bb5b92b42b544db4f92cd3280e6fbee34c/f/UP9000-CUSA00900_00-BLOODBORNE000000-A0109-V0100_0.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/ppkgo/prod/CUSA00900_00/13/f_cc2abe4a1f19b883a98761fec84175bb5b92b42b544db4f92cd3280e6fbee34c/f/UP9000-CUSA00900_00-BLOODBORNE000000-A0109-V0100_1.pkg"
+            "http://gs2.ww.prod.dl.playstation.net/gs2/ppkgo/prod/CUSA00900_00/13/f_cc2abe4a1f19b883a98761fec84175bb5b92b42b544db4f92cd3280e6fbee34c/f/UP9000-CUSA00900_00-BLOODBORNE000000-A0109-V0100_2.pkg"
+          )
+
+          BATCH="${{ github.event.inputs.batch }}"
+          if [ "$BATCH" = "1" ]; then
+            URLS=("${ALL_URLS[@]:0:4}")
+          elif [ "$BATCH" = "2" ]; then
+            URLS=("${ALL_URLS[@]:4:3}")
+          else
+            URLS=("${ALL_URLS[@]:7:3}")
+          fi
+
+          cd chunks
+
+          for url in "${URLS[@]}"; do
+            filename=$(basename "$url")
+            echo "Downloading $filename"
+            curl -L -o "$filename" "$url"
+
+            # Split into 50 MB chunks (well under 100 MB limit)
+            split -b 50M -d "$filename" "${filename}.chunk"
+            rm "$filename"   # Remove original large file
+
+            # Create a checksum for verification
+            sha256sum "${filename}.chunk"* > "${filename}.sha256"
+          done
+
+      - name: Commit and Push Chunks
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add chunks/
+          git commit -m "Add batch ${{ github.event.inputs.batch }} chunks" || echo "No changes to commit"
+          git push
