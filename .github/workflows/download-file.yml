@@ -1,7 +1,16 @@
-name: Download and Release Multiple PKGs
+name: Download and Release PKG Batch
 
 on:
   workflow_dispatch:
+    inputs:
+      batch:
+        description: 'Which batch to run?'
+        required: true
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
 
 permissions:
   contents: write
@@ -13,9 +22,10 @@ jobs:
       - name: Create Downloads Directory
         run: mkdir -p downloads
 
-      - name: Download and Split Files
+      - name: Download and Split Files (Batch ${{ github.event.inputs.batch }})
         run: |
-          urls=(
+          # All URLs in order
+          ALL_URLS=(
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg"
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_1.pkg"
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_2.pkg"
@@ -28,30 +38,41 @@ jobs:
             "http://gs2.ww.prod.dl.playstation.net/gs2/ppkgo/prod/CUSA00900_00/13/f_cc2abe4a1f19b883a98761fec84175bb5b92b42b544db4f92cd3280e6fbee34c/f/UP9000-CUSA00900_00-BLOODBORNE000000-A0109-V0100_2.pkg"
           )
 
-          SPLIT_THRESHOLD=1610612736  # 1.5 GB
+          BATCH="${{ github.event.inputs.batch }}"
+          if [ "$BATCH" = "1" ]; then
+            URLS=("${ALL_URLS[@]:0:4}")   # Index 0-3 (4 files)
+            BATCH_NAME="Part1_Files_0_to_3"
+          elif [ "$BATCH" = "2" ]; then
+            URLS=("${ALL_URLS[@]:4:3}")   # Index 4-6 (3 files)
+            BATCH_NAME="Part2_Files_4_to_6"
+          else
+            URLS=("${ALL_URLS[@]:7:3}")   # Index 7-9 (3 update files)
+            BATCH_NAME="Part3_Update_Files"
+          fi
+
+          echo "Running $BATCH_NAME with ${#URLS[@]} files"
 
           cd downloads
+          SPLIT_THRESHOLD=1610612736  # 1.5 GB
 
-          for url in "${urls[@]}"; do
+          for url in "${URLS[@]}"; do
             filename=$(basename "$url")
             echo "Downloading: $filename"
             curl -L -o "$filename" "$url"
 
             filesize=$(stat -c%s "$filename")
             if [ $filesize -gt $SPLIT_THRESHOLD ]; then
-              echo "File $filename is larger than 1.5GB, splitting into 1.5GB parts..."
+              echo "Splitting $filename into 1.5GB parts..."
               split -b 1500M -d "$filename" "${filename}.part"
               rm "$filename"
-            else
-              echo "File $filename is under 1.5GB, keeping as single file."
             fi
           done
 
-      - name: Create Release and Upload All Assets
+      - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          name: "Bloodborne PKG Collection"
-          tag_name: "bloodborne-pkgs-$(date +'%Y%m%d-%H%M%S')"
+          name: "Bloodborne PKG - Batch ${{ github.event.inputs.batch }}"
+          tag_name: "bloodborne-batch${{ github.event.inputs.batch }}-$(date +'%Y%m%d-%H%M%S')"
           files: |
             downloads/*
         env:
