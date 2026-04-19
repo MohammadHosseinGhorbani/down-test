@@ -15,7 +15,6 @@ jobs:
 
       - name: Download and Split Files
         run: |
-          # Array of download URLs (add all your URLs here)
           urls=(
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg"
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_1.pkg"
@@ -29,26 +28,22 @@ jobs:
             "http://gs2.ww.prod.dl.playstation.net/gs2/ppkgo/prod/CUSA00900_00/13/f_cc2abe4a1f19b883a98761fec84175bb5b92b42b544db4f92cd3280e6fbee34c/f/UP9000-CUSA00900_00-BLOODBORNE000000-A0109-V0100_2.pkg"
           )
 
-          # Threshold for splitting (2 GB in bytes = 2147483648)
-          SPLIT_THRESHOLD=2147483648
+          SPLIT_THRESHOLD=1610612736  # 1.5 GB
 
           cd downloads
 
           for url in "${urls[@]}"; do
-            # Extract filename from URL
             filename=$(basename "$url")
             echo "Downloading: $filename"
             curl -L -o "$filename" "$url"
 
-            # Check file size
             filesize=$(stat -c%s "$filename")
             if [ $filesize -gt $SPLIT_THRESHOLD ]; then
-              echo "File $filename is larger than 2GB, splitting into 2GB parts..."
-              split -b 2G -d "$filename" "${filename}.part"
-              # Remove original large file to save disk space
+              echo "File $filename is larger than 1.5GB, splitting into 1.5GB parts..."
+              split -b 1500M -d "$filename" "${filename}.part"
               rm "$filename"
             else
-              echo "File $filename is under 2GB, keeping as single file."
+              echo "File $filename is under 1.5GB, keeping as single file."
             fi
           done
 
