@@ -1,27 +1,29 @@
-name: Download File from URL
+name: Download, Split, and Upload to Release
 
 on:
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download File
         run: |
-          curl -L "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg" --output ./UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg
-        working-directory: ${{ github.workspace }}
+          curl -L "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg" --output "./UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg"
 
-      - name: Commit and Push Changes
+      - name: Split File into 2GB parts
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add .
-          git commit -m "Automated download of file from URL"
-          git push
+          split -b 2G ./UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg "UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg.part"
+
+      - name: Create Release and Upload Parts
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Bloodborne Update PKG (4GB Split)"
+          tag_name: "v1.0-split"
+          files: |
+            ./original.pkg.part*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
