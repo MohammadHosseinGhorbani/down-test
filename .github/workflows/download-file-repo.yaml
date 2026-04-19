@@ -1,4 +1,4 @@
-name: Chunk and Commit PKGs to Repo
+name: Ultra‑Conservative Batch Push
 
 on:
   workflow_dispatch:
@@ -16,20 +16,20 @@ permissions:
   contents: write
 
 jobs:
-  chunk-and-commit:
+  chunk-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Chunks Directory
-        run: mkdir -p chunks
-
-      - name: Download and Split Files (Batch ${{ github.event.inputs.batch }})
+      - name: Prepare workspace
         run: |
-          # All URLs (same as before)
+          mkdir -p chunks
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Process Batch ${{ github.event.inputs.batch }}
+        run: |
           ALL_URLS=(
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_0.pkg"
             "http://gs2.ww.prod.dl.playstation.net/gs2/appkgo/prod/CUSA00900_00/2/f_2df8e321f37e2f5ea3930f6af4e9571144916013ee38893d881890b454b5fed6/f/UP9000-CUSA00900_00-BLOODBORNE000000_1.pkg"
@@ -52,41 +52,64 @@ jobs:
             URLS=("${ALL_URLS[@]:7:3}")
           fi
 
-          mkdir -p chunks
           cd chunks
 
-          # Configure Git (required inside the loop for each commit)
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
+          # Process each file
           for url in "${URLS[@]}"; do
             filename=$(basename "$url")
-            echo "=============================================="
-            echo "Processing: $filename"
-            echo "=============================================="
+            echo ""
+            echo "========== DOWNLOADING $filename =========="
+            curl -L --retry 3 --retry-delay 5 -o "$filename" "$url"
 
-            # Download
-            curl -L -o "$filename" "$url"
+            # Split into 25 MB chunks (well below any limits)
+            echo "Splitting $filename into 25 MB chunks..."
+            split -b 25M -d "$filename" "${filename}.chunk"
+            rm "$filename"   # free space immediately
 
-            # Split into 50 MB chunks
-            split -b 50M -d "$filename" "${filename}.chunk"
-            rm "$filename"
+            # Get sorted list of chunks
+            mapfile -t chunks < <(ls -1 "${filename}.chunk"* | sort)
+            total_chunks=${#chunks[@]}
+            echo "Total chunks: $total_chunks"
 
-            # Generate checksum for this file's chunks
+            # Push in groups of 10 chunks (~250 MB per push)
+            GROUP_SIZE=10
+            for ((i=0; i<total_chunks; i+=GROUP_SIZE)); do
+              start=$i
+              end=$((i+GROUP_SIZE-1))
+              if [ $end -ge $total_chunks ]; then
+                end=$((total_chunks-1))
+              fi
+
+              echo "Pushing chunks $((start+1)) to $((end+1)) of $total_chunks"
+              group_chunks=("${chunks[@]:start:GROUP_SIZE}")
+
+              # Add only this group of chunks
+              git add "${group_chunks[@]}"
+              git commit -m "Add $filename chunks $(printf "%03d" $((start+1)))-$(printf "%03d" $((end+1)))"
+
+              # Retry push up to 5 times
+              for attempt in {1..5}; do
+                echo "Push attempt $attempt..."
+                if git push; then
+                  break
+                else
+                  if [ $attempt -eq 5 ]; then
+                    echo "Push failed after 5 attempts. Exiting."
+                    exit 1
+                  fi
+                  echo "Push failed. Retrying in 30 seconds..."
+                  sleep 30
+                fi
+              done
+            done
+
+            # After all chunks, push the checksum file
             sha256sum "${filename}.chunk"* > "${filename}.sha256"
+            git add "${filename}.sha256"
+            git commit -m "Add checksum for $filename"
+            git push || { echo "Failed to push checksum"; exit 1; }
 
-            # Stage, commit, and push ONLY this file's chunks
-            git add "${filename}.chunk"* "${filename}.sha256"
-            git commit -m "Add chunks for $filename"
-            git push
-
-            echo "Completed $filename"
+            # Remove all chunks for this file to free disk space
+            rm -f "${filename}.chunk"*
+            echo "========== COMPLETED $filename =========="
           done
-
-      - name: Commit and Push Chunks
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add chunks/
-          git commit -m "Add batch ${{ github.event.inputs.batch }} chunks" || echo "No changes to commit"
-          git push
