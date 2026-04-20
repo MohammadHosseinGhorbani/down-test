@@ -1,0 +1,27 @@
+name: Download and Push ShadPS4
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Download The File
+        run: |
+          url="https://github.com/shadps4-emu/shadps4-qtlauncher/releases/download/v224/shadPS4QtLauncher-win64-qt-v224.zip"
+          filename=$(basename "$url")
+          curl "$url" --output "$filename"
+
+          git add "$filename"
+          git commit -m "Add the downloaded file"
+          git push
+
+          echo "========== COMPLETED $filename =========="
+          done
